@@ -3,19 +3,19 @@
 import PackageDescription
 
 let package = Package(
-    name: "swift-package-template",
+    name: "DTBiOSSDK",
     platforms: [.iOS(.v13)],
     products: [
         .library(
-            name: "swift-package",
-            targets: ["swift-package-xcframework"],
+            name: "DTBiOSSDK",
+            targets: ["DTBiOSSDK"],
         ),
     ],
     targets: [
         .binaryTarget(
-            name: "swift-package-xcframework",
-            url: "https://path-to-xcframework",
-            checksum: "8675309",
+            name: "DTBiOSSDK",
+            url: "https://mdtb-sdk-packages.s3.us-west-2.amazonaws.com/iOS_APS_SDK/APS_iOS_SDK-5.2.0.zip",
+            checksum: "296bfb7ef3c0f885efc737b776cd5587a4fc3773d753b696b20eb5945a5d2a6f",
         ),
     ]
 )
