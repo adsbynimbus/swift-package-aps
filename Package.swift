@@ -14,8 +14,8 @@ let package = Package(
     targets: [
         .binaryTarget(
             name: "DTBiOSSDK",
-            url: "https://mdtb-sdk-packages.s3.us-west-2.amazonaws.com/iOS_APS_SDK/APS_iOS_SDK-5.2.0.zip",
-            checksum: "296bfb7ef3c0f885efc737b776cd5587a4fc3773d753b696b20eb5945a5d2a6f",
+            url: "https://d14jk8f50gmy3e.cloudfront.net/iOS_APS_SDK/APS_iOS_SDK-5.3.0.zip",
+            checksum: "3c317306e0147b899b70ecf8f3b54a7a5c73a1677da7260a313bf785ce64d044",
         ),
     ]
 )
