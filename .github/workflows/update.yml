@@ -6,7 +6,8 @@ on:
       url:
         required: false
         type: string
-        description: Optional url to dependency; if omitted the previous url will be used
+        default: "https://d14jk8f50gmy3e.cloudfront.net/iOS_APS_SDK/APS_iOS_SDK-{version}.zip"
+        description: APS SDK bundle URL; {version} is replaced with the version input
       version:
         required: true
         type: string
@@ -16,7 +17,8 @@ on:
       url:
         required: false
         type: string
-        description: Optional url to dependency; if omitted the previous url will be used
+        default: "https://d14jk8f50gmy3e.cloudfront.net/iOS_APS_SDK/APS_iOS_SDK-{version}.zip"
+        description: APS SDK bundle URL; {version} is replaced with the version input
       version:
         required: true
         type: string
@@ -41,53 +43,119 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
-      - name: Parse Existing Binary Target URL
-        id: existing
+
+      - name: Resolve source URL
+        id: source
         run: |
-          echo url=`awk '
-            /url:/ {
-              gsub(/^[^"]*"|",?/, "", $0);
-              gsub(/",$|,$/, "", $0);
-              print $0;
-              exit
-            }
-          ' "Package.swift"` >> $GITHUB_OUTPUT
-      - name: Update URL to new version
-        id: update
-        run: >-
-          echo url=`echo "${{ inputs.url && inputs.url || steps.existing.outputs.url }}" | 
-          sed -E "s/\b[0-9]+\.[0-9]+([.][0-9]+)?\b/${{ inputs.version }}/g"` >> $GITHUB_OUTPUT
+          APS_URL="${{ inputs.url }}"
+          APS_URL="${APS_URL//\{version\}/${{ inputs.version }}}"
+          echo "url=$APS_URL" >> $GITHUB_OUTPUT
+
+      - name: Resolve APS mirror path
+        id: aps
+        run: |
+          THRESHOLD="5.3.3"
+          LOWER=$(printf '%s\n%s' "$THRESHOLD" "${{ inputs.version }}" | sort -V | head -1)
+          if [[ "$LOWER" == "$THRESHOLD" && "${{ inputs.version }}" != "$THRESHOLD" ]]; then
+            echo "needs_mirror=true" >> $GITHUB_OUTPUT
+          else
+            echo "needs_mirror=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Download and repackage DTBiOSSDK from APS bundle
+        id: binary_aps
+        if: ${{ steps.aps.outputs.needs_mirror == 'true' }}
+        run: |
+          curl --fail -L "${{ steps.source.outputs.url }}" -o APS_iOS_SDK.zip
+
+          unzip -q APS_iOS_SDK.zip -d APS_iOS_SDK
+
+          XCFW=$(find APS_iOS_SDK -name "DTBiOSSDK.xcframework" -maxdepth 5 | head -1)
+          if [ -z "$XCFW" ]; then
+            echo "ERROR: DTBiOSSDK.xcframework not found in APS bundle"
+            exit 1
+          fi
+
+          (cd "$(dirname "$XCFW")" && zip -qr "${GITHUB_WORKSPACE}/DTBiOSSDK.xcframework.zip" "DTBiOSSDK.xcframework")
+          mv DTBiOSSDK.xcframework.zip DTBiOSSDK.zip
+
+          CHECKSUM=$(swift package compute-checksum DTBiOSSDK.zip)
+          echo "checksum=$CHECKSUM" >> $GITHUB_OUTPUT
+
       - name: Download updated binary and compute checksum
+        id: binary_standard
+        if: ${{ steps.aps.outputs.needs_mirror != 'true' }}
+        run: |
+          curl --fail "${{ steps.source.outputs.url }}" > framework.zip
+          echo checksum=`swift package compute-checksum framework.zip` >> $GITHUB_OUTPUT
+
+      - name: Resolve final checksum and url
         id: binary
         run: |
-          curl --fail "${{ steps.update.outputs.url }}" > framework.zip
-          echo checksum=`swift package compute-checksum framework.zip` >> $GITHUB_OUTPUT
+          if [[ "${{ steps.aps.outputs.needs_mirror }}" == "true" ]]; then
+            echo "checksum=${{ steps.binary_aps.outputs.checksum }}" >> $GITHUB_OUTPUT
+            echo "url=https://github.com/${{ github.repository }}/releases/download/${{ inputs.version }}/DTBiOSSDK.zip" >> $GITHUB_OUTPUT
+          else
+            echo "checksum=${{ steps.binary_standard.outputs.checksum }}" >> $GITHUB_OUTPUT
+            echo "url=${{ steps.source.outputs.url }}" >> $GITHUB_OUTPUT
+          fi
+
       - name: Update Package
         run: |
           TMP_FILE=$(mktemp)
           sed -E \
             "/^[[:space:]]*\\.binaryTarget\\(/,/^[[:space:]]*[)]+/ {
               /[[:space:]]*url:[[:space:]]*\"([^\"]+)\"/ {
-                s|^([[:space:]]*url:[[:space:]]*)\"[^\"]+\"|\\1\"${{ steps.update.outputs.url }}\"|
+                s|^([[:space:]]*url:[[:space:]]*)\"[^\"]+\"|\\1\"${{ steps.binary.outputs.url }}\"|
               }
               /[[:space:]]*checksum:[[:space:]]*\"([^\"]+)\"/ {
                 s|^([[:space:]]*checksum:[[:space:]]*)\"[^\"]+\"|\\1\"${{ steps.binary.outputs.checksum }}\"|
               }
             }" Package.swift > "$TMP_FILE"
           mv "$TMP_FILE" Package.swift
-      - name: Validate Package
-        run: |
-          swift package reset
-          swift package resolve
+
       - name: Commit Changes
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add Package.swift
           git commit -m "Updated to version ${{ inputs.version }}"
-          git push
+
+      - name: Validate Package
+        run: |
+          if [[ "${{ steps.aps.outputs.needs_mirror }}" == "true" ]]; then
+            unzip -q DTBiOSSDK.zip
+          else
+            unzip -q framework.zip
+          fi
+
+          # Swap to local path target
+          TMP=$(mktemp)
+          sed -E \
+            "/^[[:space:]]*\.binaryTarget\(/,/^[[:space:]]*\)/ {
+              /url:/ d
+              /checksum:/ d
+              s|(name:[[:space:]]*\"DTBiOSSDK\")|\1,\n            path: \"DTBiOSSDK.xcframework\"|
+            }" Package.swift > "$TMP"
+          mv "$TMP" Package.swift
+
+          swift package reset
+          swift package resolve
+          RESULT=$?
+
+          git checkout -f
+          exit $RESULT
+
+      - name: Push Changes
+        run: git push
+
       - name: Create Release
         if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release create ${{ inputs.version }} --repo ${{ github.repository }} -t ${{ inputs.version }} --fail-on-no-commits
+        run: |
+          gh release create ${{ inputs.version }} \
+            --repo ${{ github.repository }} \
+            -t ${{ inputs.version }} \
+            --fail-on-no-commits \
+            ${{ steps.aps.outputs.needs_mirror == 'true' && 'DTBiOSSDK.zip' || '' }}
