@@ -14,8 +14,8 @@ let package = Package(
     targets: [
         .binaryTarget(
             name: "DTBiOSSDK",
-            url: "https://d14jk8f50gmy3e.cloudfront.net/iOS_APS_SDK/APS_iOS_SDK-5.5.0.zip",
-            checksum: "5d8f95a74ce46d708a38728775d6c04735febc1318e48c8cf2607ec794057ce0",
+            url: "https://github.com/adsbynimbus/swift-package-aps/releases/download/5.5.0/DTBiOSSDK.zip",
+            checksum: "cffb869cba8620809c5791f07834757fcf82f7a84fe5029293bbf1942356468b",
         ),
     ]
 )
