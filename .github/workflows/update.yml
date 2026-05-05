@@ -12,6 +12,11 @@ on:
         required: true
         type: string
         description: New version; cannot be lower than the previous version
+      disable_mirror:
+        required: false
+        type: boolean
+        default: false
+        description: If true, the upstream URL is used directly instead of mirroring DTBiOSSDK to a GitHub release
   workflow_dispatch:
     inputs:
       url:
@@ -23,6 +28,11 @@ on:
         required: true
         type: string
         description: New version; cannot be lower than the previous version
+      disable_mirror:
+        required: false
+        type: boolean
+        default: false
+        description: If true, the upstream URL is used directly instead of mirroring DTBiOSSDK to a GitHub release
 
 concurrency:
   group: ${{ github.workflow }}
@@ -51,20 +61,9 @@ jobs:
           APS_URL="${APS_URL//\{version\}/${{ inputs.version }}}"
           echo "url=$APS_URL" >> $GITHUB_OUTPUT
 
-      - name: Resolve APS mirror path
-        id: aps
-        run: |
-          THRESHOLD="5.3.3"
-          LOWER=$(printf '%s\n%s' "$THRESHOLD" "${{ inputs.version }}" | sort -V | head -1)
-          if [[ "$LOWER" == "$THRESHOLD" && "${{ inputs.version }}" != "$THRESHOLD" ]]; then
-            echo "needs_mirror=true" >> $GITHUB_OUTPUT
-          else
-            echo "needs_mirror=false" >> $GITHUB_OUTPUT
-          fi
-
       - name: Download and repackage DTBiOSSDK from APS bundle
         id: binary_aps
-        if: ${{ steps.aps.outputs.needs_mirror == 'true' }}
+        if: ${{ !inputs.disable_mirror }}
         run: |
           curl --fail -L "${{ steps.source.outputs.url }}" -o APS_iOS_SDK.zip
 
@@ -84,7 +83,7 @@ jobs:
 
       - name: Download updated binary and compute checksum
         id: binary_standard
-        if: ${{ steps.aps.outputs.needs_mirror != 'true' }}
+        if: ${{ inputs.disable_mirror }}
         run: |
           curl --fail "${{ steps.source.outputs.url }}" > framework.zip
           echo checksum=`swift package compute-checksum framework.zip` >> $GITHUB_OUTPUT
@@ -92,7 +91,7 @@ jobs:
       - name: Resolve final checksum and url
         id: binary
         run: |
-          if [[ "${{ steps.aps.outputs.needs_mirror }}" == "true" ]]; then
+          if [[ "${{ inputs.disable_mirror }}" != "true" ]]; then
             echo "checksum=${{ steps.binary_aps.outputs.checksum }}" >> $GITHUB_OUTPUT
             echo "url=https://github.com/${{ github.repository }}/releases/download/${{ inputs.version }}/DTBiOSSDK.zip" >> $GITHUB_OUTPUT
           else
@@ -123,21 +122,19 @@ jobs:
 
       - name: Validate Package
         run: |
-          if [[ "${{ steps.aps.outputs.needs_mirror }}" == "true" ]]; then
+          if [[ "${{ inputs.disable_mirror }}" != "true" ]]; then
             unzip -q DTBiOSSDK.zip
-          else
-            unzip -q framework.zip
-          fi
 
-          # Swap to local path target
-          TMP=$(mktemp)
-          sed -E \
-            "/^[[:space:]]*\.binaryTarget\(/,/^[[:space:]]*\)/ {
-              /url:/ d
-              /checksum:/ d
-              s|(name:[[:space:]]*\"DTBiOSSDK\")|\1,\n            path: \"DTBiOSSDK.xcframework\"|
-            }" Package.swift > "$TMP"
-          mv "$TMP" Package.swift
+            # Swap to local path target
+            TMP=$(mktemp)
+            sed -E \
+              "/^[[:space:]]*\.binaryTarget\(/,/^[[:space:]]*\)/ {
+                /url:/ d
+                /checksum:/ d
+                s|(name:[[:space:]]*\"DTBiOSSDK\")|\1,\n            path: \"DTBiOSSDK.xcframework\"|
+              }" Package.swift > "$TMP"
+            mv "$TMP" Package.swift
+          fi
 
           swift package reset
           swift package resolve
@@ -153,9 +150,9 @@ jobs:
         if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release create ${{ inputs.version }} \
-            --repo ${{ github.repository }} \
-            -t ${{ inputs.version }} \
-            --fail-on-no-commits \
-            ${{ steps.aps.outputs.needs_mirror == 'true' && 'DTBiOSSDK.zip' || '' }}
+        run: >-
+          gh release create ${{ inputs.version }}
+          --repo ${{ github.repository }}
+          -t ${{ inputs.version }}
+          --fail-on-no-commits
+          ${{ !inputs.disable_mirror && 'DTBiOSSDK.zip' || '' }}
