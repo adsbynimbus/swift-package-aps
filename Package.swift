@@ -14,8 +14,8 @@ let package = Package(
     targets: [
         .binaryTarget(
             name: "DTBiOSSDK",
-            url: "https://github.com/adsbynimbus/swift-package-aps/releases/download/5.6.1/DTBiOSSDK.zip",
-            checksum: "1e3f6233aa42fbf43f8f275244d4b59224f6b16a2ac3241b75124143ded05698",
+            url: "https://github.com/adsbynimbus/swift-package-aps/releases/download/5.6.2/DTBiOSSDK.zip",
+            checksum: "e911c5c87bf45fad88a9327c1f3a63e4a931a297c7d122d91352b0d4843e1d9c",
         ),
     ]
 )
